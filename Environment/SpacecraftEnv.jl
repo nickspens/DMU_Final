@@ -1,6 +1,6 @@
-export Spacecraft_LEO_Env, Continuous_Spacecraft_LEO_Env
+export SpacecraftEnv, ContinuousSpacecraftEnv
 
-struct Spacecraft_LEO_Env_Params{T}
+struct SpacecraftEnvParams{T}
     min_radius::T
     max_radius::T
     # max_speed::T
@@ -12,15 +12,15 @@ struct Spacecraft_LEO_Env_Params{T}
     max_steps::Int
 end
 
-Base.show(io::IO, params::Spacecraft_LEO_Env_Params) = print(
+Base.show(io::IO, params::SpacecraftEnvParams) = print(
     io,
-    join(["$p=$(getfield(params, p))" for p in fieldnames(Spacecraft_LEO_Env_Params)], ","),
+    join(["$p=$(getfield(params, p))" for p in fieldnames(SpacecraftEnvParams)], ","),
 )
 
-function Spacecraft_LEO_Env_Params(;
+function SpacecraftEnvParams(;
     T = Float64,
-    min_pos = 6571, #km
-    max_pos = 7571, #km
+    min_radius = 6571, #km
+    max_radius = 7571, #km
     goal_distance = 0.05, #km
     goal_velocity = 7.5617, #km/s
     Isp = 300, #hydrogen engines
@@ -41,10 +41,10 @@ function Spacecraft_LEO_Env_Params(;
     )
 end
 
-mutable struct MountainCarEnv{A,T,ACT,R<:AbstractRNG} <: AbstractEnv
-    params::MountainCarEnvParams{T}
+mutable struct SpacecraftEnv{A,T,ACT,R<:AbstractRNG} <: AbstractEnv
+    params::SpacecraftEnvParams{T}
     action_space::A
-    observation_space::Space{Vector{ClosedInterval{T}}}
+    # observation_space::Space{Vector{ClosedInterval{T}}}
     state::Vector{T}
     action::ACT
     done::Bool
@@ -58,32 +58,33 @@ end
 - `T = Float64`
 - `continuous = false`
 - `rng = Random.GLOBAL_RNG`
-- `min_pos = -1.2`
-- `max_pos = 0.6`
-- `max_speed = 0.07`
-- `goal_pos = 0.5`
-- `max_steps = 200`
-- `goal_velocity = 0.0`
-- `power = 0.001`
-- `gravity = 0.0025`
+- `T = Float64,
+- `min_radius = 6571, 
+- `max_radius = 7571, 
+- `goal_distance = 0.05, 
+- `goal_velocity = 7.5617, 
+- `Isp = 300, 
+- `g0 = 0.00981, 
+- `mu = 398600.4, 
+- `max_steps = 200,
 """
-function MountainCarEnv(;
+function SpacecraftEnv(;
     T = Float64,
-    continuous = false,
+    # continuous = false,
     rng = Random.GLOBAL_RNG,
     kwargs...,
 )
-    if continuous
-        params = MountainCarEnvParams(; goal_pos = 0.45, power = 0.0015, T = T, kwargs...)
-    else
-        params = MountainCarEnvParams(; T = T, kwargs...)
-    end
-    action_space = continuous ? ClosedInterval{T}(-1.0, 1.0) : Base.OneTo(3)
-    env = MountainCarEnv(
+    # if continuous
+    params = SpacecraftEnvParams(; goal_distance = 0.05, Isp = 300, T = T, kwargs...)
+    # else
+    #     params = SpacecraftEnvParams(; T = T, kwargs...)
+    # end
+    action_space = (-1, 0, 1)
+    env = SpacecraftEnv(
         params,
         action_space,
-        Space([params.min_pos..params.max_pos, -params.max_speed..params.max_speed]),
-        zeros(T, 2),
+        # Space([params.min_pos..params.max_pos, -params.max_speed..params.max_speed]),
+        zeros(T,3), #radius, theta, mass (kg)
         rand(action_space),
         false,
         0,
@@ -93,37 +94,44 @@ function MountainCarEnv(;
     env
 end
 
-ContinuousMountainCarEnv(; kwargs...) = MountainCarEnv(; continuous = true, kwargs...)
+ContinuousSpacecraftEnv(; kwargs...) = SpacecraftEnv(; continuous = true, kwargs...)
 
-Random.seed!(env::MountainCarEnv, seed) = Random.seed!(env.rng, seed)
+Random.seed!(env::SpacecraftEnv, seed) = Random.seed!(env.rng, seed)
 
-RLBase.action_space(env::MountainCarEnv) = env.action_space
-RLBase.state_space(env::MountainCarEnv) = env.observation_space
-RLBase.reward(env::MountainCarEnv{A,T}) where {A,T} = env.done ? zero(T) : -one(T)
-RLBase.is_terminated(env::MountainCarEnv) = env.done
-RLBase.state(env::MountainCarEnv) = env.state
+RLBase.action_space(env::SpacecraftCarEnv) = env.action_space
+RLBase.reward(env::SpacecraftEnv{A,T}) where {A,T} = Dict(env.sc.distance[1]=> -100.0,
+env.sc.distance[2]=> -100.0,
+env.sc.distance[3]=> 50.0,
+env.sc.distance[4]=> 100.0,
+env.action[0]=> -env.sc.dM,
+env.action[2]=> -env.sc.dM)
+RLBase.is_terminated(env::SpacecraftEnv) = env.done
+RLBase.state(env::SpacecraftEnv) = env.state
 
-function RLBase.reset!(env::MountainCarEnv{A,T}) where {A,T}
-    env.state[1] = 0.2 * rand(env.rng, T) - 0.6
-    env.state[2] = 0.0
+function RLBase.reset!(env::SpacecraftEnv{A,T}) where {A,T}
+    env.state[1] = 6571 #km
+    env.state[2] = 0.0 #rad
+    env.state[3] = 7.7885 #km/s
+    env.state[4] = 0.0 #km/s
+    env.state[5] = 1000.0 #kg
     env.done = false
     env.t = 0
     nothing
 end
 
-function (env::MountainCarEnv{<:ClosedInterval})(a::AbstractFloat)
+function (env::SpacecraftEnv{<:ClosedInterval})(a::AbstractFloat)
     @assert a in env.action_space
     env.action = a
     _step!(env, a)
 end
 
-function (env::MountainCarEnv{<:Base.OneTo{Int}})(a::Int)
+function (env::SpacecraftEnv{<:Base.OneTo{Int}})(a::Int)
     @assert a in env.action_space
     env.action = a
     _step!(env, a - 2)
 end
 
-function _step!(env::MountainCarEnv, force)
+function _step!(env::SpacecraftEnv, force)
     env.t += 1
     x, v = env.state
     v += force * env.params.power + cos(3 * x) * (-env.params.gravity)
