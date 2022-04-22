@@ -131,20 +131,42 @@ function (env::SpacecraftEnv{<:Base.OneTo{Int}})(a::Int)
     _step!(env, a - 2)
 end
 
-function _step!(env::SpacecraftEnv, force)
-    env.t += 1
-    x, v = env.state
-    v += force * env.params.power + cos(3 * x) * (-env.params.gravity)
-    v = clamp(v, -env.params.max_speed, env.params.max_speed)
-    x += v
-    x = clamp(x, env.params.min_pos, env.params.max_pos)
-    if x == env.params.min_pos && v < 0
-        v = 0
-    end
-    env.done =
-        x >= env.params.goal_pos && v >= env.params.goal_velocity ||
-        env.t >= env.params.max_steps
-    env.state[1] = x
-    env.state[2] = v
+function _step!(env::SpacecraftEnv, Thrust)
+    timestep = 1
+
+    state_update(env.sc[0],Thrust)
+
+    env.sc[0].state
+    env.sc[0].distance
+
+
+
+    #env.done =
+    #    r >= env.params.goal_pos && v >= env.params.goal_velocity ||
+    #    env.t >= env.params.max_steps
+
     nothing
+end
+
+function state_update(spacecraft,Thrust)
+    r,θ,vr,vθ,m,m_dot = spacecraft.state
+    μ = env.mu
+    T = env.T*Thrust
+
+    m_dot = -T/(I_sp*g0)
+
+    r_dot = vr 
+    θ_dot = vθ/r 
+    vr_dot = vθ^2/r - μ/(r^2)
+    vθ_dot = -vr*vθ/r + T/(m-m_dot*timestep)
+
+
+    env.t += timestep
+    r_new = r+r_dot*timestep
+    θ_new = θ+θ_dot*timestep
+    vr_new = vr+vr_dot*timestep
+    vθ_new = vθ+vθ_dot*timestep
+    m_new = m-m_dot*timestep
+
+    spacecraft.state = [r_new,θ_new,vr_new,vθ_new,m_new,m_dot]
 end
