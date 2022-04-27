@@ -7,7 +7,7 @@ struct SpacecraftEnvParams{T}
     max_radius::T
     # max_speed::T
     goal_distance::T
-    goal_velocity::T
+    # goal_velocity::T # Add the velocity later
     Isp::T
     g0::T
     mu::T
@@ -15,6 +15,7 @@ struct SpacecraftEnvParams{T}
     timestep::Int
 end
 
+# Ask professor: is it for printing the parameters?
 Base.show(io::IO, params::SpacecraftEnvParams) = print(
     io,
     join(["$p=$(getfield(params, p))" for p in fieldnames(SpacecraftEnvParams)], ","),
@@ -22,9 +23,9 @@ Base.show(io::IO, params::SpacecraftEnvParams) = print(
 
 function SpacecraftEnvParams(;
     T = Float64,
-    min_radius = 6571, #km
-    max_radius = 7571, #km
-    goal_distance = 0.05, #km
+    min_radius = 6571, #km (200 km from Earth surface)
+    max_radius = 7571, #km (1000 km above Earth surface)
+    goal_distance = 0.05, #km (goal distance between sc0 and target spacecrafts)
     # goal_velocity = 7.3043, #km/s
     Isp = 300, #hydrogen engines
     g0 = 0.00981, #km/s
@@ -36,7 +37,7 @@ function SpacecraftEnvParams(;
         min_radius,
         max_radius,
         goal_distance,
-        goal_velocity,
+        # goal_velocity,
         Isp,
         g0,
         mu,
@@ -48,9 +49,9 @@ end
 mutable struct SpacecraftEnv{A,T,ACT,R<:AbstractRNG} <: AbstractEnv
     params::SpacecraftEnvParams{T}
     action_space::A
-    # observation_space::Space{Vector{ClosedInterval{T}}}
     state::Vector{T}
     action::ACT
+    rewards::Int
     done::Bool
     t::Int
     rng::R
@@ -60,36 +61,30 @@ end
     MountainCarEnv(;kwargs...)
 # Keyword arguments
 - `T = Float64`
-- `continuous = false`
 - `rng = Random.GLOBAL_RNG`
 - `T = Float64,
 - `min_radius = 6571, 
 - `max_radius = 7571, 
 - `goal_distance = 0.05, 
-- `goal_velocity = 7.5617, 
 - `Isp = 300, 
 - `g0 = 0.00981, 
 - `mu = 398600.4, 
 - `max_steps = 200,
+- `timestep` = 1,
 """
 function SpacecraftEnv(;
     T = Float64,
-    # continuous = false,
     rng = Random.GLOBAL_RNG,
     kwargs...,
 )
-    # if continuous
     params = SpacecraftEnvParams(; goal_distance = 0.05, Isp = 300, T = T, kwargs...)
-    # else
-    #     params = SpacecraftEnvParams(; T = T, kwargs...)
-    # end
-    action_space = (-1, 0, 1)
+    action_space = ([-1, 0, 1])
     env = SpacecraftEnv(
         params,
         action_space,
-        # Space([params.min_pos..params.max_pos, -params.max_speed..params.max_speed]),
-        zeros(T,3), #radius, theta, mass (kg)
+        zeros(T,6), #radius, theta, vr, v_theta, mass, m_dot (kg)
         rand(action_space),
+        0,
         false,
         0,
         rng,
@@ -98,10 +93,7 @@ function SpacecraftEnv(;
     env
 end
 
-ContinuousSpacecraftEnv(; kwargs...) = SpacecraftEnv(; continuous = true, kwargs...)
-
 Random.seed!(env::SpacecraftEnv, seed) = Random.seed!(env.rng, seed)
-
 RLBase.action_space(env::SpacecraftEnv) = env.action_space
 RLBase.reward(env::SpacecraftEnv{A,T}) where {A,T} =  env.done ? zero(T) : -one(T) ## ASK PROFESSOR 
 # Dict(env.sc.distance[1]<= env.goal_distance => -100.0,
@@ -167,11 +159,20 @@ function _step!(env::SpacecraftEnv)
     
     env.done = env.t >= env.params.max_steps||
         for i in 1:4
-            sc[0].distance[i] <= env.goal_distance;
+            if sc[0].distance[i] <= env.goal_distance;
             # && norm([sc[0].state[2],sc[0].state[3]]) == env.goal_velocity
+                if i==1
+                    env.rewards = -100;
+                elseif i==2
+                    env.rewards = -60;
+                elseif i==3
+                    env.rewards = 50;
+                elseif i==4
+                    env.rewards = 100;
+                end
+            end
         end
-         
-    
+    return(env.rewards)
     
 end
 
@@ -200,6 +201,7 @@ function state_update(env.sc,throttle = env.action, env.timestep)  # Can we take
             m_dot = -Thr/(env.Isp*g0);
             m_new = m-m_dot*timestep;
             vθ_dot = -vr*vθ/r + Thr/(m-m_dot*timestep);
+            env.rewards += m_new - m;
         end
 
         sc[i].state = [r_new,θ_new,vr_new,vθ_new,m_new,m_dot];
