@@ -1,5 +1,5 @@
 using LinearAlgebra
-export SpacecraftEnv, ContinuousSpacecraftEnv
+export SpacecraftEnv
 
 
 struct SpacecraftEnvParams{T}
@@ -46,12 +46,23 @@ function SpacecraftEnvParams(;
     )
 end
 
+function SpacecraftEnvReward(env::SpacecraftEnv)
+    fuelReward = sc[0].fuelReward;
+    d = env.sc.distance;
+    weight = [30, 20, 20, 40]; #TBD
+    contReward = dot([-1/d[0], - 1/d[1], 1/d[2], 1/d[3]],weight);
+    
+    env.reward = contReward + fuelReward + fstateReward;
+
+end
+
+
 mutable struct SpacecraftEnv{A,T,ACT,R<:AbstractRNG} <: AbstractEnv
     params::SpacecraftEnvParams{T}
     action_space::A
     state::Vector{T}
     action::ACT
-    rewards::Int
+    rewards::Float64
     done::Bool
     t::Int
     rng::R
@@ -79,12 +90,13 @@ function SpacecraftEnv(;
 )
     params = SpacecraftEnvParams(; goal_distance = 0.05, Isp = 300, T = T, kwargs...)
     action_space = ([-1, 0, 1])
+    reward = SpacecraftEnvReward(env)
     env = SpacecraftEnv(
         params,
         action_space,
         zeros(T,6), #radius, theta, vr, v_theta, mass, m_dot (kg)
         rand(action_space),
-        0,
+        reward,
         false,
         0,
         rng,
@@ -101,7 +113,7 @@ RLBase.reward(env::SpacecraftEnv{A,T}) where {A,T} =  env.done ? zero(T) : -one(
 # env.sc.distance[3]=> 50.0,
 # env.sc.distance[4]=> 100.0,
 # env.action[0]=> -env.sc.state[5],
-# env.action[2]=> -env.sc.state[5])
+# env.action[2]=> -env.sc.state[5]),
 RLBase.is_terminated(env::SpacecraftEnv) = env.done
 RLBase.state(env::SpacecraftEnv) = env.state
 
@@ -162,17 +174,17 @@ function _step!(env::SpacecraftEnv)
             if sc[0].distance[i] <= env.goal_distance;
             # && norm([sc[0].state[2],sc[0].state[3]]) == env.goal_velocity
                 if i==1
-                    env.rewards = -100;
+                    fstateReward = -100;
                 elseif i==2
-                    env.rewards = -60;
+                    fstateReward = -60;
                 elseif i==3
-                    env.rewards = 50;
+                    fstateReward = 50;
                 elseif i==4
-                    env.rewards = 100;
+                    fstateReward = 100;
                 end
             end
         end
-    return(env.rewards)
+    return(fstateReward)
     
 end
 
@@ -201,12 +213,13 @@ function state_update(env.sc,throttle = env.action, env.timestep)  # Can we take
             m_dot = -Thr/(env.Isp*g0);
             m_new = m-m_dot*timestep;
             vθ_dot = -vr*vθ/r + Thr/(m-m_dot*timestep);
-            env.rewards += m_new - m;
+            fuelReward = m_new - m;
         end
 
         sc[i].state = [r_new,θ_new,vr_new,vθ_new,m_new,m_dot];
-
+        sc[0].fuelReward = fuelReward;
         distance(sc)
+        env.reward = SpacecraftEnvReward(env)
         
     end
 
