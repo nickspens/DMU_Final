@@ -1,4 +1,8 @@
 using LinearAlgebra
+using Test
+using ReinforcementLearningBase.RLBase
+using Random
+using Random: AbstractRNG
 export SpacecraftEnv
 
 
@@ -21,6 +25,7 @@ Base.show(io::IO, params::SpacecraftEnvParams) = print(
     join(["$p=$(getfield(params, p))" for p in fieldnames(SpacecraftEnvParams)], ","),
 )
 
+
 function SpacecraftEnvParams(;
     T = Float64,
     min_radius = 6571, #km (200 km from Earth surface)
@@ -33,7 +38,7 @@ function SpacecraftEnvParams(;
     max_steps = 200,
     timestep = 1,
 )
-    MountainCarEnvParams{T}(
+    SpacecraftEnvParams{T}(
         min_radius,
         max_radius,
         goal_distance,
@@ -46,24 +51,13 @@ function SpacecraftEnvParams(;
     )
 end
 
-function SpacecraftEnvReward(env::SpacecraftEnv,fuelcost, fstateReward, distance)
-
-    d = distance;
-    weight = [30, 20, 20, 40]; #TBD
-    contReward = dot([-1/d[0], - 1/d[1], 1/d[2], 1/d[3]],weight); #negative rewards for obj 1 and 2 (in sc vector), positive reward for obj 3 and 4 (in sc vector)
-    
-    tot_reward = contReward + fuelcost + fstateReward;
-
-    return (tot_reward)
-end
 
 
-mutable struct SpacecraftEnv{A,SC,T,D,ACT,R<:AbstractRNG} <: AbstractEnv
+# How could we define this mutable structure properly? 
+mutable struct SpacecraftEnv{A,T,ACT,R<:AbstractRNG} <: AbstractEnv
     params::SpacecraftEnvParams{T}
     action_space::A
-    sc::Vector{SC}
-    sc.state::Vector{T}
-    sc.fuelReward::Float64
+    sc_state::Vector{T}
     action::ACT
     reward::Float64
     done::Bool
@@ -97,9 +91,9 @@ function SpacecraftEnv(;
     env = SpacecraftEnv(
         params,
         action_space,
-        zeros(SC,5),
-        zeros(T,6), #radius, theta, vr, v_theta, mass, m_dot (kg)
-        0.0,
+        zeros(4,6),
+        #zeros(SC,5), ## DELETE
+        #zeros(T,6), #radius, theta, vr, v_theta, mass, m_dot (kg) ## DELETE
         rand(action_space),
         reward,
         false,
@@ -120,46 +114,45 @@ RLBase.state(env::SpacecraftEnv) = env.state
 function RLBase.reset!(env::SpacecraftEnv{A,T}) where {A,T}
 
     # Servicing SC
-    env.sc[0].state[0] = 6571; #km
-    env.sc[0].state[1] = 0.0; #rad
-    env.sc[0].state[2] = 0.0; #km/s
-    env.sc[0].state[3] = 7.7885; #km/s
-    env.sc[0].state[4] = 1000.0; #kg
-    env.sc[0].state[5] = 0; #kg/s
+    env.sc_state[0, 0] = 6571; #km
+    env.sc_state[0, 1] = 0.0; #rad
+    env.sc_state[0, 2] = 0.0; #km/s
+    env.sc_state[0, 3] = 7.7885; #km/s
+    env.sc_state[0, 4] = 1000.0; #kg
+    env.sc_state[0, 5] = 0; #kg/s
 
 
     # SC 1 - to avoid
-    env.sc[1].state[0] = 6771; #km
-    env.sc[1].state[1] = 0.7853; #rad
-    env.sc[1].state[2] = 0.0; #km/s
-    env.sc[1].state[3] = 7.6726; #km/s
-    env.sc[1].state[4] = 1000.0; #kg
-    env.sc[1].state[5] = 0; #kg/s
+    env.sc_state[1, 0] = 6771; #km
+    env.sc_state[1, 1] = 0.7853; #rad
+    env.sc_state[1, 2] = 0.0; #km/s
+    env.sc_state[1, 3] = 7.6726; #km/s
+    env.sc_state[1, 4] = 1000.0; #kg
+    env.sc_state[1, 5] = 0; #kg/s
     
-
     # SC 2 - to avoid
-    env.sc[2].state[0] = 6971; #km
-    env.sc[2].state[1] = 1.5708; #rad
-    env.sc[2].state[2] = 0.0; #km/s
-    env.sc[2].state[3] = 7.5617; #km/s
-    env.sc[2].state[4] = 1000.0; #kg
-    env.sc[2].state[5] = 0; #kg/s
+    env.sc_state[2, 0] = 6971; #km
+    env.sc_state[2, 1] = 1.5708; #rad
+    env.sc_state[2, 2] = 0.0; #km/s
+    env.sc_state[2, 3] = 7.5617; #km/s
+    env.sc_state[2, 4] = 1000.0; #kg
+    env.sc_state[2, 5] = 0; #kg/s
 
     # SC 3 - to be refuelled
-    env.sc[3].state[0] = 7171; #km
-    env.sc[3].state[1] = 2.5691; #rad
-    env.sc[3].state[2] = 0.0; #km/s
-    env.sc[3].state[3] = 7.4555; #km/s
-    env.sc[3].state[4] = 1000.0; #kg
-    env.sc[3].state[5] = 0; #kg/s
+    env.sc_state[3, 0] = 7171; #km
+    env.sc_state[3, 1] = 2.5691; #rad
+    env.sc_state[3, 2] = 0.0; #km/s
+    env.sc_state[3, 3] = 7.4555; #km/s
+    env.sc_state[3, 4] = 1000.0; #kg
+    env.sc_state[3, 5] = 0; #kg/s
 
     # Space Station - to be refuelled
-    env.sc[4].state[0] = 7471; #km
-    env.sc[4].state[1] = 4.7125; #rad
-    env.sc[4].state[2] = 0.0; #km/s
-    env.sc[4].state[3] = 7.3043; #km/s
-    env.sc[4].state[4] = 1000.0; #kg
-    env.sc[4].state[5] = 0; #kg/s
+    env.sc_state[4, 0] = 7471; #km
+    env.sc_state[4, 1] = 4.7125; #rad
+    env.sc_state[4, 2] = 0.0; #km/s
+    env.sc_state[4, 3] = 7.3043; #km/s
+    env.sc_state[4, 4] = 1000.0; #kg
+    env.sc_state[4, 5] = 0; #kg/s
 
 
     env.done = false
@@ -194,13 +187,13 @@ end
 
 function state_update(env::SpacecraftEnv)
     μ = env.mu;
-    sc = env.sc;
+    sc = env.sc_state;
     throttle = env.action;
     Thr = env.T*throttle;
     env.t += env.timestep;
 
-    for i in sc
-        r,θ,vr,vθ,m,m_dot = sc[i].state;
+    for i in 0:4
+        r,θ,vr,vθ,m,m_dot = sc_state[i, :];
         r_dot = vr ;
         θ_dot = vθ/r; 
         vr_dot = vθ^2/r - μ/(r^2);
@@ -220,22 +213,22 @@ function state_update(env::SpacecraftEnv)
             fuelcost = m_new - m;
         end
 
-        sc[i].state = [r_new,θ_new,vr_new,vθ_new,m_new,m_dot];
+        sc_state[i, :] = [r_new,θ_new,vr_new,vθ_new,m_new,m_dot];
 
-        distance = distance(sc)
+        distance = distance(sc_state)
         
         return(distance, fuelcost)
 
     end
 
-    function distance(sc)
+    function distance(sc_state)
 
-        r0= sc[0].state[1]
-        θ0 = sc[0].state[2]
+        r0= sc_state[0, 1]
+        θ0 = sc_state[0, 2]
 
         for i in 1:4
-            r = sc[i].state[1]
-            θ = sc[i].state[2]
+            r = sc_state[i, 1]
+            θ = sc_state[i, 2]
 
             distance= sqrt((r*cos(θ) - r0*cos(θ0))^2 + (r*sin(θ) - r0*sin(θ0))^2)
 
@@ -244,7 +237,15 @@ function state_update(env::SpacecraftEnv)
         return(distance_s0)
     end
 
+end
 
+function SpacecraftEnvReward(env::SpacecraftEnv,fuelcost, fstateReward, distance)
 
+    d = distance;
+    weight = [30, 20, 20, 40]; #TBD
+    contReward = dot([-1/d[0], - 1/d[1], 1/d[2], 1/d[3]],weight); #negative rewards for obj 1 and 2 (in sc vector), positive reward for obj 3 and 4 (in sc vector)
+    
+    tot_reward = contReward + fuelcost + fstateReward;
 
+    return (tot_reward)
 end
