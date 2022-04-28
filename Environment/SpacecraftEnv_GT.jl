@@ -15,7 +15,7 @@ struct SpacecraftEnvParams{T}
     timestep::Int
 end
 
-# Ask professor: is it for printing the parameters?
+# Print object and parameters
 Base.show(io::IO, params::SpacecraftEnvParams) = print(
     io,
     join(["$p=$(getfield(params, p))" for p in fieldnames(SpacecraftEnvParams)], ","),
@@ -46,23 +46,26 @@ function SpacecraftEnvParams(;
     )
 end
 
-function SpacecraftEnvReward(env::SpacecraftEnv)
-    fuelReward = sc[0].fuelReward;
-    d = env.sc.distance;
-    weight = [30, 20, 20, 40]; #TBD
-    contReward = dot([-1/d[0], - 1/d[1], 1/d[2], 1/d[3]],weight);
-    
-    env.reward = contReward + fuelReward + fstateReward;
+function SpacecraftEnvReward(env::SpacecraftEnv,fuelcost, fstateReward, distance)
 
+    d = distance;
+    weight = [30, 20, 20, 40]; #TBD
+    contReward = dot([-1/d[0], - 1/d[1], 1/d[2], 1/d[3]],weight); #negative rewards for obj 1 and 2 (in sc vector), positive reward for obj 3 and 4 (in sc vector)
+    
+    tot_reward = contReward + fuelcost + fstateReward;
+
+    return (tot_reward)
 end
 
 
-mutable struct SpacecraftEnv{A,T,ACT,R<:AbstractRNG} <: AbstractEnv
+mutable struct SpacecraftEnv{A,SC,T,D,ACT,R<:AbstractRNG} <: AbstractEnv
     params::SpacecraftEnvParams{T}
     action_space::A
-    state::Vector{T}
+    sc::Vector{SC}
+    sc.state::Vector{T}
+    sc.fuelReward::Float64
     action::ACT
-    rewards::Float64
+    reward::Float64
     done::Bool
     t::Int
     rng::R
@@ -90,11 +93,13 @@ function SpacecraftEnv(;
 )
     params = SpacecraftEnvParams(; goal_distance = 0.05, Isp = 300, T = T, kwargs...)
     action_space = ([-1, 0, 1])
-    reward = SpacecraftEnvReward(env)
+    reward = SpacecraftEnvReward(env, fuelReward, fstateRewards, distance) ## ASK PROF/TA
     env = SpacecraftEnv(
         params,
         action_space,
+        zeros(SC,5),
         zeros(T,6), #radius, theta, vr, v_theta, mass, m_dot (kg)
+        0.0,
         rand(action_space),
         reward,
         false,
@@ -107,13 +112,8 @@ end
 
 Random.seed!(env::SpacecraftEnv, seed) = Random.seed!(env.rng, seed)
 RLBase.action_space(env::SpacecraftEnv) = env.action_space
-RLBase.reward(env::SpacecraftEnv{A,T}) where {A,T} =  env.done ? zero(T) : -one(T) ## ASK PROFESSOR 
-# Dict(env.sc.distance[1]<= env.goal_distance => -100.0,
-# env.sc.distance[2]=> -60.0,
-# env.sc.distance[3]=> 50.0,
-# env.sc.distance[4]=> 100.0,
-# env.action[0]=> -env.sc.state[5],
-# env.action[2]=> -env.sc.state[5]),
+# RLBase.reward(env::SpacecraftEnv{A,T}) where {A,T} =  env.done ? zero(T) : -one(T) 
+RLBase.reward(env::SpacecraftEnv{A,T}) where {A,T} = env.reward
 RLBase.is_terminated(env::SpacecraftEnv) = env.done
 RLBase.state(env::SpacecraftEnv) = env.state
 
@@ -127,6 +127,7 @@ function RLBase.reset!(env::SpacecraftEnv{A,T}) where {A,T}
     env.sc[0].state[4] = 1000.0; #kg
     env.sc[0].state[5] = 0; #kg/s
 
+
     # SC 1 - to avoid
     env.sc[1].state[0] = 6771; #km
     env.sc[1].state[1] = 0.7853; #rad
@@ -134,6 +135,7 @@ function RLBase.reset!(env::SpacecraftEnv{A,T}) where {A,T}
     env.sc[1].state[3] = 7.6726; #km/s
     env.sc[1].state[4] = 1000.0; #kg
     env.sc[1].state[5] = 0; #kg/s
+    
 
     # SC 2 - to avoid
     env.sc[2].state[0] = 6971; #km
@@ -167,11 +169,11 @@ end
 
 function _step!(env::SpacecraftEnv)
 
-    state_update(env.sc, env.action, env.timestep);
+    distance, fuelcost = state_update(env);
     
     env.done = env.t >= env.params.max_steps||
         for i in 1:4
-            if sc[0].distance[i] <= env.goal_distance;
+            if dist[i] <= env.goal_distance;
             # && norm([sc[0].state[2],sc[0].state[3]]) == env.goal_velocity
                 if i==1
                     fstateReward = -100;
@@ -184,16 +186,18 @@ function _step!(env::SpacecraftEnv)
                 end
             end
         end
-    return(fstateReward)
     
+    env.reward = SpacecraftEnvReward(env, fuelcost, fstateReward, distance) # Ask Prof/TA can we call this in this way?
+
+    nothing
 end
 
-function state_update(env.sc,throttle = env.action, env.timestep)  # Can we take into account the actions in this way? Can we call the spacecraft in this way?
+function state_update(env::SpacecraftEnv)
     μ = env.mu;
+    sc = env.sc;
+    throttle = env.action;
     Thr = env.T*throttle;
-
-
-    env.t += timestep;
+    env.t += env.timestep;
 
     for i in sc
         r,θ,vr,vθ,m,m_dot = sc[i].state;
@@ -213,17 +217,18 @@ function state_update(env.sc,throttle = env.action, env.timestep)  # Can we take
             m_dot = -Thr/(env.Isp*g0);
             m_new = m-m_dot*timestep;
             vθ_dot = -vr*vθ/r + Thr/(m-m_dot*timestep);
-            fuelReward = m_new - m;
+            fuelcost = m_new - m;
         end
 
         sc[i].state = [r_new,θ_new,vr_new,vθ_new,m_new,m_dot];
-        sc[0].fuelReward = fuelReward;
-        distance(sc)
-        env.reward = SpacecraftEnvReward(env)
+
+        distance = distance(sc)
         
+        return(distance, fuelcost)
+
     end
 
-    function distance(env.sc)
+    function distance(sc)
 
         r0= sc[0].state[1]
         θ0 = sc[0].state[2]
@@ -232,10 +237,11 @@ function state_update(env.sc,throttle = env.action, env.timestep)  # Can we take
             r = sc[i].state[1]
             θ = sc[i].state[2]
 
-            distance = sqrt((r*cos(θ) - r0*cos(θ0))^2 + (r*sin(θ) - r0*sin(θ0))^2)
+            distance= sqrt((r*cos(θ) - r0*cos(θ0))^2 + (r*sin(θ) - r0*sin(θ0))^2)
 
-            sc[0].distance[i] = distance
+            push!(distance_s0, distance)
         end
+        return(distance_s0)
     end
 
 
