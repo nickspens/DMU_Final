@@ -14,6 +14,7 @@ struct SpacecraftEnvParams{T}
     # goal_velocity::T # Add the velocity later
     Isp::T
     g0::T
+    Thrust::T
     mu::T
     max_steps::Int
     timestep::Int
@@ -34,6 +35,7 @@ function SpacecraftEnvParams(;
     # goal_velocity = 7.3043, #km/s
     Isp = 300, #hydrogen engines
     g0 = 0.00981, #km/s
+    Thrust = 20, #N
     mu = 398600.4, #km^3/s^2
     max_steps = 200,
     timestep = 1,
@@ -45,6 +47,7 @@ function SpacecraftEnvParams(;
         # goal_velocity,
         Isp,
         g0,
+        Thrust,
         mu,
         max_steps,
         timestep,
@@ -76,6 +79,7 @@ end
 - `goal_distance = 0.05, 
 - `Isp = 300, 
 - `g0 = 0.00981, 
+- `Thrust = 20,
 - `mu = 398600.4, 
 - `max_steps = 200,
 - `timestep` = 1,
@@ -174,6 +178,7 @@ function _step!(env::SpacecraftEnv)
                     fstateReward = -60;
                 elseif i==3
                     fstateReward = 50;
+                    env.done = false; #reaching this sc is not a final state
                 elseif i==4
                     fstateReward = 100;
                 end
@@ -189,7 +194,7 @@ function state_update(env::SpacecraftEnv)
     μ = env.mu;
     sc = env.sc_state;
     throttle = env.action;
-    Thr = env.T*throttle;
+    Thr = env.Thrust*throttle;
     env.t += env.timestep;
 
     for i in 0:4
@@ -223,14 +228,14 @@ function state_update(env::SpacecraftEnv)
 
     function distance(sc_state)
 
-        r0= sc_state[0, 1]
+        r0 = sc_state[0, 1]
         θ0 = sc_state[0, 2]
 
         for i in 1:4
             r = sc_state[i, 1]
             θ = sc_state[i, 2]
 
-            distance= sqrt((r*cos(θ) - r0*cos(θ0))^2 + (r*sin(θ) - r0*sin(θ0))^2)
+            distance = sqrt((r*cos(θ) - r0*cos(θ0))^2 + (r*sin(θ) - r0*sin(θ0))^2)
 
             push!(distance_s0, distance)
         end
