@@ -138,3 +138,8 @@ function _step!(env::MountainCarEnv, force)
     env.state[2] = v
     nothing
 end
+
+using ReinforcementLearning
+env = MountainCarEnv()
+RLBase.test_runnable!(env)
+run(RandomPolicy(),env,StopAfterStep(1000),TotalRewardPerEpisode())
