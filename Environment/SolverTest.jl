@@ -30,7 +30,7 @@ function SpacecraftEnvParams(;
     max_radius = 7571, #km (1000 km above Earth surface)
     goal_distance = 50, #km (goal distance between sc0 and target spacecrafts)
     # goal_velocity = 7.3043, #km/s
-    Isp = 300, #hydrogen engines
+    Isp = 300,#300, #hydrogen engines
     g0 = 0.00981, #km/s^2
     Thrust = 20, #N
     mu = 398600.4, #km^3/s^2
@@ -98,7 +98,7 @@ RLBase.state(env::SpacecraftEnv) = env.state
 function RLBase.reset!(env::SpacecraftEnv{A,T}) where {A,T}
     # Servicing SC
     env.state[1] = 6571 #km
-    env.state[2] = rand(env.rng, T) #rad
+    env.state[2] = 0#rand(env.rng, T) #rad
     env.state[3] = 0.0 #km/s
     env.state[4] = 7.7885 #km/s
     env.state[5] = 1000.0 #kg
@@ -106,7 +106,7 @@ function RLBase.reset!(env::SpacecraftEnv{A,T}) where {A,T}
 
     # Space Station - to be refuelled
     env.state[7] = 7471 #km
-    env.state[8] = 4.7125 #rad
+    env.state[8] = 1.5 #rad
     env.state[9] = 0.0 #km/s
     env.state[10] = 7.3043 #km/s
     env.state[11] = 1000.0 #kg
@@ -139,7 +139,7 @@ function _step!(env::SpacecraftEnv, force)
     
 
     r,θ,vr,vθ,m,m_dot = sc[1:6]
-    r_dot, = vr
+    r_dot = vr
     θ_dot = vθ/r
     vr_dot = vθ^2/r - μ/(r^2)
     vθ_dot = -vr*vθ/r + Thr/(m-m_dot*timestep) #should probably change this, as this doesn't mean only in dom. Even though optimally it isn't important
@@ -153,7 +153,7 @@ function _step!(env::SpacecraftEnv, force)
     env.state[1:6] = [r_new,θ_new,vr_new,vθ_new,m_new,m_dot]
 
     r,θ,vr,vθ,m,m_dot = sc[7:12]
-    r_dot, = vr
+    r_dot = vr
     θ_dot = vθ/r 
     vr_dot = vθ^2/r - μ/(r^2)
     vθ_dot = -vr*vθ/r
@@ -166,7 +166,7 @@ function _step!(env::SpacecraftEnv, force)
 
     env.done = 
         env.t>=env.params.max_steps ||
-        env.state[5] <= 0.0 #out of fuel
+        env.state[5] <= 200.0 #out of fuel
     nothing
 end
 
@@ -178,10 +178,12 @@ function SpacecraftEnvReward(env::SpacecraftEnv)
     θ = state[8]
     distance = sqrt((r*cos(θ) - r0*cos(θ0))^2 + (r*sin(θ) - r0*sin(θ0))^2)
     if distance < env.params.goal_distance
+        env.done = true
         return(100.0)
     else
         return(0.0)
     end
+
 end
 
 function SpacecraftFinalRewardTest(env::SpacecraftEnv)
