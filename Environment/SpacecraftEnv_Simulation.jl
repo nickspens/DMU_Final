@@ -41,7 +41,6 @@ function SpacecraftEnvParams(;
         min_radius,
         max_radius,
         goal_distance,
-        # goal_velocity,
         Isp,
         g0,
         Thrust,
@@ -97,13 +96,13 @@ RLBase.state(env::SpacecraftEnv) = env.state
 function RLBase.reset!(env::SpacecraftEnv{A,T}) where {A,T}
     # Servicing SC
     env.state[1] = 6571 #km
-    env.state[2] = 2.5 #rand(env.rng, T) #rad
+    env.state[2] = 2.5 #rad
     env.state[3] = 0.0 #km/s
     env.state[4] = 7.7885 #km/s
     env.state[5] = 1000.0 #kg
     env.state[6] = 0 #kg/s
 
-    # Space Station - to be refuelled
+    # Space debris to be avoided
     env.state[7] = 7000 #km
     env.state[8] = 1.7125 #rad
     env.state[9] = 0.0 #km/s
@@ -116,14 +115,13 @@ function RLBase.reset!(env::SpacecraftEnv{A,T}) where {A,T}
     env.state[14] = 3.7125 #rad
     env.state[15] = 0.0 #km/s
     env.state[16] = 7.3043 #km/s
-    env.state[17] = 1000.0 #kg
+    env.state[17] = 10.0 #kg
     env.state[18] = 0 #kg/s
     env.done = false
     env.t = 0
     nothing
 end
 
-##not sure what the next two funcs are for
 function (env::SpacecraftEnv{<:ClosedInterval})(a::AbstractFloat)
     @assert a in env.action_space
     env.action = a
@@ -132,7 +130,6 @@ end
 
 function (env::SpacecraftEnv{<:Base.OneTo{Int}})(a::Int)
     @assert a in env.action_space
-    # print(a, "\n\n")
     env.action = a
     _step!(env, a-2)
 end
@@ -140,7 +137,6 @@ end
 function _step!(env::SpacecraftEnv, throttle)
     μ = env.params.mu
     sc = env.state
-    # throttle = env.action
     Thr = env.params.Thrust*throttle
     timestep = env.params.timestep
     env.t += timestep
@@ -149,8 +145,8 @@ function _step!(env::SpacecraftEnv, throttle)
     r,θ,vr,vθ,m,m_dot = sc[1:6]
     r_dot, = vr
     θ_dot = vθ/r
-    vr_dot = vθ^2/r - μ/(r^2) #+ Thr/(m-norm(m_dot)*timestep)
-    vθ_dot = -vr*vθ/r + Thr/(m-norm(m_dot)*timestep) #should probably change this, as this doesn't mean only in dom. Even though optimally it isn't important
+    vr_dot = vθ^2/r - μ/(r^2) 
+    vθ_dot = -vr*vθ/r + Thr/(m-norm(m_dot)*timestep) 
     r_new = r+r_dot*timestep
     θ_new = θ+θ_dot*timestep
     vr_new = vr+vr_dot*timestep
@@ -159,7 +155,7 @@ function _step!(env::SpacecraftEnv, throttle)
     m_dot = -abs(Thr)/(env.params.Isp*env.params.g0)
     m_new = m+m_dot*timestep
     env.state[1:6] = [r_new,θ_new,vr_new,vθ_new,m_new,m_dot]
-    # print("sc:",r,"\t",θ, "\n")
+
 
     r,θ,vr,vθ,m,m_dot = sc[7:12]
     r_dot, = vr
@@ -172,7 +168,7 @@ function _step!(env::SpacecraftEnv, throttle)
     vθ_new = vθ+vθ_dot*timestep
     m_dot = 0
     env.state[7:12] = [r_new,θ_new,vr_new,vθ_new,m_new,m_dot]
-    # print("obs:",r,"\t",θ, "\n")
+
 
     r,θ,vr,vθ,m,m_dot = sc[13:18]
     r_dot, = vr
@@ -185,12 +181,12 @@ function _step!(env::SpacecraftEnv, throttle)
     vθ_new = vθ+vθ_dot*timestep
     m_dot = 0
     env.state[13:18] = [r_new,θ_new,vr_new,vθ_new,m_new,m_dot]
-    # print("iss:",r,"\t",θ,"\n\n")
+
 
     env.done = 
         env.t>=env.params.max_steps ||
         env.state[5] <= 0.0 ||#out of fuel 
-        env.state[1] > env.state[13]
+        env.state[1] > env.state[13] # beyond SS orbit
 
     nothing
 end
@@ -211,7 +207,7 @@ function SpacecraftEnvReward(env::SpacecraftEnv)
         env.done = true
     elseif distance_obs <env.params.goal_distance
         print("Obstacle reached")
-        return(-100) #(100.0)
+        return(-100) 
         env.done = true
     else
         return(0.0)
@@ -230,11 +226,11 @@ function SpacecraftFinalRewardTest(env::SpacecraftEnv)
     distance_iss = sqrt((r_iss*cos(θ_iss) - r0*cos(θ0))^2 + (r_iss*sin(θ_iss) - r0*sin(θ0))^2)
     if distance_iss < env.params.goal_distance
         print("Goal reached")
-        return(1000) #(100.0)
+        return(1000)
         env.done = true
     elseif distance_obs <env.params.goal_distance
         print("Obstacle reached")
-        return(-100) #(100.0)
+        return(-100) 
         env.done = true
     else
         return(-distance_iss)
