@@ -33,7 +33,7 @@ function SpacecraftEnvParams(;
     g0 = 0.00981, #km/s^2
     Thrust = 20, #N
     mu = 398600.4, #km^3/s^2
-    max_steps = 20000,
+    max_steps = 50000,
     timestep = 10,
 )
     
@@ -97,7 +97,7 @@ RLBase.state(env::SpacecraftEnv) = env.state
 function RLBase.reset!(env::SpacecraftEnv{A,T}) where {A,T}
     # Servicing SC
     env.state[1] = 6571 #km
-    env.state[2] = rand(env.rng, T) #rad
+    env.state[2] = 2.5 #rand(env.rng, T) #rad
     env.state[3] = 0.0 #km/s
     env.state[4] = 7.7885 #km/s
     env.state[5] = 1000.0 #kg
@@ -113,7 +113,7 @@ function RLBase.reset!(env::SpacecraftEnv{A,T}) where {A,T}
 
     # Space Station - to be refuelled
     env.state[13] = 7471 #km
-    env.state[14] = 0.7125 #rad
+    env.state[14] = 3.7125 #rad
     env.state[15] = 0.0 #km/s
     env.state[16] = 7.3043 #km/s
     env.state[17] = 1000.0 #kg
@@ -132,7 +132,7 @@ end
 
 function (env::SpacecraftEnv{<:Base.OneTo{Int}})(a::Int)
     @assert a in env.action_space
-    print(a, "\n\n")
+    # print(a, "\n\n")
     env.action = a
     _step!(env, a-2)
 end
@@ -159,7 +159,7 @@ function _step!(env::SpacecraftEnv, throttle)
     m_dot = -abs(Thr)/(env.params.Isp*env.params.g0)
     m_new = m+m_dot*timestep
     env.state[1:6] = [r_new,θ_new,vr_new,vθ_new,m_new,m_dot]
-    print("sc:",r,"\t",θ, "\n")
+    # print("sc:",r,"\t",θ, "\n")
 
     r,θ,vr,vθ,m,m_dot = sc[7:12]
     r_dot, = vr
@@ -172,7 +172,7 @@ function _step!(env::SpacecraftEnv, throttle)
     vθ_new = vθ+vθ_dot*timestep
     m_dot = 0
     env.state[7:12] = [r_new,θ_new,vr_new,vθ_new,m_new,m_dot]
-    print("obs:",r,"\t",θ, "\n")
+    # print("obs:",r,"\t",θ, "\n")
 
     r,θ,vr,vθ,m,m_dot = sc[13:18]
     r_dot, = vr
@@ -185,7 +185,7 @@ function _step!(env::SpacecraftEnv, throttle)
     vθ_new = vθ+vθ_dot*timestep
     m_dot = 0
     env.state[13:18] = [r_new,θ_new,vr_new,vθ_new,m_new,m_dot]
-    print("iss:",r,"\t",θ,"\n\n")
+    # print("iss:",r,"\t",θ,"\n\n")
 
     env.done = 
         env.t>=env.params.max_steps ||
@@ -294,7 +294,7 @@ function RL.Experiment(
         ),
     )
 
-    stop_condition = StopAfterStep(70_000, is_show_progress=!haskey(ENV, "CI"))
+    stop_condition = StopAfterStep(800_000, is_show_progress=!haskey(ENV, "CI"))
     hook = TotalRewardPerEpisode()
 
     Experiment(agent, env, stop_condition, hook, "")
