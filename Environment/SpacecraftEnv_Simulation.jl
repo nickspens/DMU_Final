@@ -71,7 +71,7 @@ function SpacecraftEnv(;
     
     params = SpacecraftEnvParams(; T = T, kwargs...)
 
-    action_space = Base.OneTo(10)
+    action_space = Base.OneTo(3)
     env = SpacecraftEnv(
         params,
         action_space,
